@@ -1,0 +1,435 @@
+{
+  "name": "Seats Aero Scraper Pagination",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Code node n8n\n// Entrada: item.json.data.actions.scrapes[*].html (resposta do Firecrawl)\n// Saída: 1 item por linha (<tr>) da tabela class=\"table table-striped dataTable\"\n\n// ---------- Funções auxiliares ----------\n\nfunction decodeHtml(str) {\n  if (!str) return '';\n  return str\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .replace(/&#39;/g, \"'\");\n}\n\n// Extrai a <table class=\"table table-striped dataTable\">...</table>\nfunction extractDataTable(html) {\n  const tableRegex =\n    /<table[^>]*class=\"[^\"]*\\btable\\b[^\"]*\\btable-striped\\b[^\"]*\\bdataTable\\b[^\"]*\"[^>]*>([\\s\\S]*?)<\\/table>/i;\n  const match = html.match(tableRegex);\n  return match ? match[0] : '';\n}\n\n// Extrai conteúdo de uma tag (thead ou tbody)\nfunction extractTagContent(html, tagName) {\n  const regex = new RegExp(\n    `<${tagName}[^>]*>([\\\\s\\\\S]*?)<\\\\/${tagName}>`,\n    'i',\n  );\n  const match = html.match(regex);\n  return match ? match[1] : '';\n}\n\n// Extrai todas as <tr> de um fragmento\nfunction extractRows(fragment) {\n  const rows = [];\n  const rowRegex = /<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi;\n  let match;\n  while ((match = rowRegex.exec(fragment)) !== null) {\n    rows.push(match[1]); // conteúdo interno da <tr>\n  }\n  return rows;\n}\n\n// De uma <tr> extrai todas as células (th/td)\nfunction extractCells(rowHtml) {\n  const cells = [];\n  const cellRegex = /<t[dh][^>]*>([\\s\\S]*?)<\\/t[dh]>/gi;\n  let match;\n\n  while ((match = cellRegex.exec(rowHtml)) !== null) {\n    let text = match[1]\n      .replace(/<[^>]+>/g, '') // remove HTML interno\n      .replace(/\\s+/g, ' ');   // normaliza espaços\n    text = decodeHtml(text).trim();\n    cells.push(text);\n  }\n\n  return cells;\n}\n\n// Converte uma tabela em array de objetos\nfunction parseSeatsTable(html) {\n  const result = [];\n\n  // 1) pega só a tabela desejada\n  const tableHtml = extractDataTable(html);\n  if (!tableHtml) return result;\n\n  // 2) THEAD (cabeçalhos)\n  const theadContent = extractTagContent(tableHtml, 'thead');\n  let headers = [];\n\n  if (theadContent) {\n    const headRows = extractRows(theadContent);\n    if (headRows.length > 0) {\n      headers = extractCells(headRows[0]); // 1ª linha do thead\n    }\n  }\n\n  // 3) TBODY (dados)\n  const tbodyContent = extractTagContent(tableHtml, 'tbody');\n  const bodyRows = extractRows(tbodyContent);\n\n  // se não tiver cabeçalho, cria col_1, col_2, ...\n  if (!headers.length && bodyRows.length > 0) {\n    const firstCells = extractCells(bodyRows[0]);\n    headers = firstCells.map((_, i) => `col_${i + 1}`);\n  }\n\n  // 4) monta cada linha\n  for (const rowHtml of bodyRows) {\n    const cells = extractCells(rowHtml);\n    if (!cells.length) continue;\n\n    const rowObj = {};\n    cells.forEach((value, idx) => {\n      const key = headers[idx] || `col_${idx + 1}`;\n      rowObj[key] = value;\n    });\n\n    const hasValue = Object.values(rowObj).some(v => v !== '');\n    if (!hasValue) continue;\n\n    result.push(rowObj);\n  }\n\n  return result;\n}\n\n// ---------- Lógica do node ----------\n\nconst out = [];\n\nfor (const item of items) {\n  // pega a lista de scrapes da resposta do Firecrawl\n  const scrapes =\n    (((item.json || {}).data || {}).actions || {}).scrapes || [];\n\n  // cada página gera 2 scrapes: [table, wrapper]\n  for (let i = 0; i < scrapes.length; i += 2) {\n    const scrape = scrapes[i]; // índice par = tabela\n    if (!scrape || !scrape.html) continue;\n\n    const html = scrape.html;\n    const page = i / 2 + 1; // página 1 => scrapes[0], pág 2 => scrapes[2], ...\n\n    const rows = parseSeatsTable(html);\n    if (!rows.length) continue; // se esse scrape não tiver a tabela, pula\n\n    for (const row of rows) {\n      out.push({\n        json: {\n          page,\n          ...row,\n        },\n      });\n    }\n  }\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        320
+      ],
+      "id": "d5ae71d0-02c7-405e-a784-6bf33f36f088",
+      "name": "somente dados da pagina"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1oeO28SlRjiAPmZaTetBY4PbnomC_zYQ0dfcy4n39V7M",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Página1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1oeO28SlRjiAPmZaTetBY4PbnomC_zYQ0dfcy4n39V7M/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.Date }}",
+            "Last Seen": "={{ $json[\"Last Seen\"] }}",
+            "Program": "={{ $json.Program }}",
+            "Departs": "={{ $json.Departs }}",
+            "Arrives": "={{ $json.Arrives }}",
+            "Economy": "={{ $json.Economy }}",
+            "Premium": "={{ $json.Premium }}",
+            "Business": "={{ $json.Business }}",
+            "First": "={{ $json.First }}",
+            "page": "={{ $json.page }}",
+            "col_10": "={{ $json.col_10 }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Seen",
+              "displayName": "Last Seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Program",
+              "displayName": "Program",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Departs",
+              "displayName": "Departs",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Arrives",
+              "displayName": "Arrives",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Economy",
+              "displayName": "Economy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Premium",
+              "displayName": "Premium",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Business",
+              "displayName": "Business",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "First",
+              "displayName": "First",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "page",
+              "displayName": "page",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "col_10",
+              "displayName": "col_10",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -608,
+        624
+      ],
+      "id": "d1dd1157-fafc-4c24-b513-0f8eac3eeacb",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "nwSLWdCxgTrRCf4u",
+          "name": "Google Sheets account 2"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: Split Pages From Scrapes (sem repetir última página)\n\n// Entrada esperada (Firecrawl /v2/scrape):\n// item.json.data.actions.scrapes = [{ html: ... }, { html: ... }, ...]\n// Padrão: [table1, wrapper1, table2, wrapper2, ...]\n\n// Saída: 1 item por página real:\n// { json: { page, tableHtml, isLastPage } }\n\nconst resp = items[0].json;\n\nif (!resp || resp.success === false || !resp.data || !resp.data.actions) {\n  return [\n    {\n      json: {\n        hasError: true,\n        errorMessage: resp?.error || 'Firecrawl não retornou dados válidos.',\n      },\n    },\n  ];\n}\n\nconst scrapes = resp.data.actions.scrapes || [];\nconst output = [];\n\nlet lastTableHtml = null;\n\nfor (let i = 0, page = 1; i < scrapes.length; i += 2, page++) {\n  const tableScrape = scrapes[i];\n  const wrapperScrape = scrapes[i + 1];\n\n  const tableHtml = (tableScrape && tableScrape.html) || '';\n  const wrapperHtml = (wrapperScrape && wrapperScrape.html) || '';\n\n  if (!tableHtml) continue;\n\n  // ---------- 1) Proteção contra repetição da mesma página ----------\n  // Se a tabela atual é idêntica à anterior, significa que os\n  // próximos scrapes são só repetição da última página.\n  if (lastTableHtml && tableHtml === lastTableHtml) {\n    // não adiciona mais nada e sai do loop\n    break;\n  }\n  lastTableHtml = tableHtml;\n\n  // ---------- 2) Heurística de fim de paginação ----------\n  // Tenta encontrar especificamente o botão Next no wrapper\n  let hasNextBtn = false;\n  let nextDisabled = false;\n\n  try {\n    const btnMatch = wrapperHtml.match(\n      /<button[^>]*data-dt-idx=\"next\"[^>]*>/i,\n    );\n\n    if (btnMatch) {\n      hasNextBtn = true;\n      const btnTag = btnMatch[0];\n\n      // considera desabilitado se tiver \"disabled\" ou class com \"disabled\"\n      nextDisabled =\n        /disabled/i.test(btnTag) ||\n        /aria-disabled=\"true\"/i.test(btnTag) ||\n        /class=\"[^\"]*disabled[^\"]*\"/i.test(btnTag);\n    } else {\n      // não achou botão next => não tem próxima página\n      hasNextBtn = false;\n      nextDisabled = true;\n    }\n  } catch (e) {\n    // qualquer erro aqui vamos assumir que não há próxima página\n    hasNextBtn = false;\n    nextDisabled = true;\n  }\n\n  const isLastPage = !hasNextBtn || nextDisabled;\n\n  output.push({\n    json: {\n      page,\n      tableHtml,\n      isLastPage,\n    },\n  });\n\n  if (isLastPage) {\n    // achamos a última página REAL -> não seguimos olhando os próximos scrapes\n    break;\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        624
+      ],
+      "id": "11d78474-ae93-4494-85f0-3aeeb08677c3",
+      "name": "Code in JavaScript1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Fluxo de scraper no site seats.aero com a api firecrawl\n",
+        "height": 256,
+        "width": 1472,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1664,
+        240
+      ],
+      "typeVersion": 1,
+      "id": "9ba06c0d-175d-4e5d-8d2a-a8b0248036f6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Campos que definem um registro único\nconst UNIQUE_KEYS = [\n  \"Date\",\n  \"Last Seen\",   // incluído na chave\n  \"Program\",\n  \"Departs\",\n  \"Arrives\",\n  \"Economy\",\n  \"Premium\",\n  \"Business\",\n  \"First\",\n];\n\nconst seen = new Set();\nconst out = [];\n\nfor (const item of items) {\n  const row = item.json || {};\n\n  // monta uma chave string usando apenas os campos únicos\n  const key = UNIQUE_KEYS\n    .map(k => row[k] ?? \"__NULL__\")  // se não existir, usa placeholder\n    .join(\"||\");\n\n  if (seen.has(key)) {\n    // já vimos esse registro, pula\n    continue;\n  }\n\n  seen.add(key);\n  out.push(item); // mantém o item inteiro (json + outros dados, se tiver)\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        320
+      ],
+      "id": "e5e42916-3d59-497a-8e00-7fd8fa45d983",
+      "name": "JS-Deduplicar"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Espera receber em items[0].json:\n// {\n//   origin: \"GRU\",\n//   destination: \"MIA\",\n//   date: \"2025-11-21\",\n//   maxPages: 10,     // (opcional)\n//   waitMs: 2000      // (opcional)\n// }\n\nconst input = items[0].json;\n\nconst origin = input.origin;\nconst dest = input.destination;\nconst date = input.date;\n\nif (!origin || !dest || !date) {\n  throw new Error('Campos origin, destination e date são obrigatórios no JSON de entrada.');\n}\n\nconst url = `https://seats.aero/search?min_seats=1&applicable_cabin=any&additional_days=true&additional_days_num=14&max_fees=40000&disable_live_filtering=false&date=${date}&origins=${origin}&destinations=${dest}`;\n\nconst maxPages = input.maxPages;   // limite de páginas a tentar\nconst waitMs = input.wait;    // tempo de espera entre ações\n\nconst actions = [];\n\n// 1) Espera inicial pro DataTables carregar\nactions.push({ type: 'wait', milliseconds: waitMs });\n\n// 2) Primeira página:\n//    - scrape APENAS da tabela pela class\n//    - scrape do wrapper pra detectar paginação (Next habilitado/desabilitado)\nactions.push({\n  type: 'scrape',\n  selector: 'table.table.table-striped.dataTable'\n});\nactions.push({\n  type: 'scrape',\n  selector: '#DataTables_Table_0_wrapper'\n});\n\n// 3) Demais páginas (até maxPages)\nfor (let page = 2; page <= maxPages; page++) {\n  // click no botão Next\n  actions.push({\n    type: 'click',\n    selector: 'button.page-link.next[aria-label=\"Next\"]'\n  });\n\n  // espera o novo conteúdo carregar\n  actions.push({ type: 'wait', milliseconds: waitMs });\n\n  // scrape da tabela (de novo, só a class)\n  actions.push({\n    type: 'scrape',\n    selector: 'table.table.table-striped.dataTable'\n  });\n\n  // scrape do wrapper para verificar se ainda há \"Next\" ativo\n  actions.push({\n    type: 'scrape',\n    selector: '#DataTables_Table_0_wrapper'\n  });\n}\n\n// Monta o body do /v2/scrape\nconst body = {\n  url,\n  actions,\n  // Mais performático: só precisamos das ações/scrapes, não da página inteira\n  formats: [{\n      type: 'html'    // valor aceito pelo Firecrawl\n    }],\n  maxAge: 0\n};\n\nreturn [\n  {\n    json: {\n      firecrawlBody: body\n    }\n  }\n];"
+      },
+      "id": "31080129-1de2-4910-ac9f-5c4e17d00199",
+      "name": "Firecrawl_construtor",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -1376,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v2/scrape",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.firecrawlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1184,
+        320
+      ],
+      "id": "dddb06c0-0f7d-4a07-980f-711722b51a9f",
+      "name": "HTTP Request_firecrawl",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VzMJu97cmhSInSR7",
+          "name": "Firecrawl API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "origin",
+              "value": "GRU"
+            },
+            {
+              "name": "destination",
+              "value": "MIA"
+            },
+            {
+              "name": "date",
+              "value": "2025-11-21"
+            }
+          ],
+          "number": [
+            {
+              "name": "maxPages",
+              "value": 10
+            },
+            {
+              "name": "wait",
+              "value": 1500
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "343973b9-ecb9-4b57-83a8-25e5a2d6fc61",
+      "name": "StartParameters_First",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -1584,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: Code - Map to Supabase\n\n// Converte datas tipo \"Nov 20, 2025\" -> \"2025-11-20\"\nfunction toIsoDate(dateStr) {\n  if (!dateStr) return null;\n\n  const months = {\n    Jan: '01',\n    Feb: '02',\n    Mar: '03',\n    Apr: '04',\n    May: '05',\n    Jun: '06',\n    Jul: '07',\n    Aug: '08',\n    Sep: '09',\n    Oct: '10',\n    Nov: '11',\n    Dec: '12',\n  };\n\n  // Ex: \"Nov 20, 2025\"\n  const parts = dateStr.trim().split(' ');\n  if (parts.length !== 3) {\n    // formato inesperado, devolve original\n    return dateStr;\n  }\n\n  const monAbbr = parts[0];\n  const day = parts[1].replace(',', '');\n  const year = parts[2];\n\n  const month = months[monAbbr];\n  if (!month) {\n    // mês não reconhecido, devolve original\n    return dateStr;\n  }\n\n  const day2 = day.padStart(2, '0');\n\n  return `${year}-${month}-${day2}`; // YYYY-MM-DD\n}\n\nconst out = [];\n\nfor (const item of items) {\n  const r = item.json;\n\n  out.push({\n    json: {\n      date: toIsoDate(r[\"Date\"]),      // <-- aqui já vai como YYYY-MM-DD\n      last_seen: r[\"Last Seen\"],\n      program: r[\"Program\"],\n      departs: r[\"Departs\"],\n      arrives: r[\"Arrives\"],\n      economy: r[\"Economy\"],\n      premium: r[\"Premium\"],\n      business: r[\"Business\"],\n      first: r[\"First\"],\n    },\n  });\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        320
+      ],
+      "id": "a3c5b57a-1685-4c77-bbe5-369af38dcd3d",
+      "name": "normalizar_json"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vmnphasntaycpaqgumkc.supabase.co/rest/v1/milheiro_seats?on_conflict=date,last_seen,program,departs,arrives,economy,premium,business,first",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -416,
+        320
+      ],
+      "id": "4f8b53ba-8c4d-41e9-94c6-6ed27f99b9a7",
+      "name": "HTTP Request",
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VzMJu97cmhSInSR7",
+          "name": "Firecrawl API"
+        },
+        "supabaseApi": {
+          "id": "rgozRo1V3wL6Ckfv",
+          "name": "suapbase_milheiro"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "somente dados da pagina": {
+      "main": [
+        [
+          {
+            "node": "JS-Deduplicar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl_construtor": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request_firecrawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request_firecrawl": {
+      "main": [
+        [
+          {
+            "node": "somente dados da pagina",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "StartParameters_First": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl_construtor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JS-Deduplicar": {
+      "main": [
+        [
+          {
+            "node": "normalizar_json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalizar_json": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a108906f-c432-402c-83aa-a35957e82ee1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7454db5ad21b8a40896b1e34036680cf1ab93a62d5360b5df260eab79d0da2d5"
+  },
+  "id": "ZqB2rRqDKH4tZNfq",
+  "tags": []
+}
